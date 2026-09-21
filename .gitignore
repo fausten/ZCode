@@ -69,3 +69,7 @@ packages/desktop/.e2e-artifacts/
 packages/desktop/.e2e-cache/
 packages/desktop/.e2e-network-capture/
 .zcode-runtime/
+
+# 部分开发机的全局 gitignore 带 lib/ 规则，会静默忽略本目录的新增文件；
+# ui 共享工具库目录必须始终纳入版本控制（如 uiFontSize/browserEnvironment）。
+!packages/ui/src/lib/

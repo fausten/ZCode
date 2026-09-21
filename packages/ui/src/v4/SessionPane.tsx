@@ -13,6 +13,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { Hand } from "lucide-react";
@@ -103,6 +104,22 @@ import { useDraftModelReadinessGate } from "@/v4/composer/useDraftModelReadiness
 import { useSettings } from "@/hooks/useSettingService.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import {
+  DEFAULT_CONVERSATION_ZOOM_SCALE,
+  MAX_CONVERSATION_ZOOM_SCALE,
+  MIN_CONVERSATION_ZOOM_SCALE,
+  CONVERSATION_ZOOM_STEP,
+} from "@/lib/conversationZoomScale.js";
+import {
+  loadConversationExportLastDirectory,
+  saveConversationExportLastDirectory,
+} from "@/lib/conversationExportDirectory.js";
+import {
+  buildConversationMarkdownExport,
+  type ConversationExportDetailLevel,
+  type ConversationExportLabels,
+} from "@/v4/conversationMarkdownExport.js";
+import { ConversationTimelineContextMenu } from "@/v4/ConversationTimelineContextMenu.js";
 import {
   DEFAULT_CONVERSATION_SHARE_ACCESS_MODE,
   DEFAULT_CONVERSATION_SHARE_DOCK_STATE,
@@ -390,6 +407,15 @@ const EMPTY_SUBAGENT_PROJECTION: NonNullable<ConversationSnapshot["subagents"]> 
 };
 
 const MAX_CONVERSATION_FILE_CHANGES_CACHE_ENTRIES = 20;
+
+// 无 store 宿主（公开分享页）的缩放 setter 占位：模块级常量保证引用稳定，
+// 避免 useSyncExternalStore 对非原始快照的重复渲染。
+const noopConversationZoomSetter = (scale: number): void => {
+  void scale;
+};
+
+// 导出成品字节上限：平台 saveFile 限制 50MB，留出编码与标题余量。
+const MAX_CONVERSATION_EXPORT_BYTES = 45 * 1024 * 1024;
 
 function toComposerUiError(
   sessionId: string | null | undefined,
@@ -1379,6 +1405,14 @@ export function SessionPane({
   const codePreviewSettings = useZCodeStoreWithDefault(
     (state) => state.codePreviewSettings,
     DEFAULT_CODE_PREVIEW_SETTINGS,
+  );
+  const conversationZoomScale = useZCodeStoreWithDefault(
+    (state) => state.conversationZoomScale,
+    DEFAULT_CONVERSATION_ZOOM_SCALE,
+  );
+  const setConversationZoomScale = useZCodeStoreWithDefault(
+    (state) => state.setConversationZoomScale,
+    noopConversationZoomSetter,
   );
   // Tier 1 fork 跳转：点 child 会话的 forkNotice → 把当前 pane 原地切到父会话，复用 fork
   // 落地同款 onSessionCreated（primary→setActiveTaskId、分屏→bindPaneSession）。rowId 预留
@@ -3635,6 +3669,122 @@ export function SessionPane({
         });
   }, [lease, snapshot?.logEpoch]);
 
+  // ── 任务内容右键菜单：另存为 Markdown + 字号缩放（spec: conversation-export-and-zoom）──
+
+  const [timelineContextMenuAnchor, setTimelineContextMenuAnchor] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [conversationExportBusy, setConversationExportBusy] = useState(false);
+
+  const handleTimelineContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    setTimelineContextMenuAnchor({ x: event.clientX, y: event.clientY });
+  }, []);
+
+  const handleConversationZoomIn = useCallback(() => {
+    setConversationZoomScale(conversationZoomScale + CONVERSATION_ZOOM_STEP);
+  }, [conversationZoomScale, setConversationZoomScale]);
+
+  const handleConversationZoomOut = useCallback(() => {
+    setConversationZoomScale(conversationZoomScale - CONVERSATION_ZOOM_STEP);
+  }, [conversationZoomScale, setConversationZoomScale]);
+
+  const handleConversationZoomReset = useCallback(() => {
+    setConversationZoomScale(DEFAULT_CONVERSATION_ZOOM_SCALE);
+  }, [setConversationZoomScale]);
+
+  const conversationExportEnabled = Boolean(sessionId && lease?.store && platform?.saveFile);
+
+  const handleExportConversationMarkdown = useCallback(
+    async (detailLevel: ConversationExportDetailLevel) => {
+      const store = lease?.store;
+      if (!sessionId || !store || !platform?.saveFile) return;
+      setConversationExportBusy(true);
+      try {
+        // 复用分享选择流程的全量补齐通道；loadAllOlder 自身单飞防重入。
+        await store.loadAllOlder();
+        const exportSnapshot = store.getState().snapshot;
+        const rows = exportSnapshot?.rows.window ?? [];
+        if (rows.length === 0) {
+          toast(intl.formatMessage({ id: "chat.export.toast.empty" }), { variant: "warning" });
+          return;
+        }
+        const labels: ConversationExportLabels = {
+          exportedAt: (time, turns) =>
+            intl.formatMessage({ id: "chat.export.exportedAt" }, { time, turns }),
+          turnHeading: (index, origin, time) =>
+            intl.formatMessage({ id: "chat.export.turnHeading" }, { index, origin, time }),
+          originUser: intl.formatMessage({ id: "chat.export.origin.user" }),
+          originGoalContinuation: intl.formatMessage({ id: "chat.export.origin.goalContinuation" }),
+          originBackgroundResult: intl.formatMessage({ id: "chat.export.origin.backgroundResult" }),
+          originEditRerun: intl.formatMessage({ id: "chat.export.origin.editRerun" }),
+          originWorkflowLaunch: intl.formatMessage({ id: "chat.export.origin.workflowLaunch" }),
+          sectionUser: intl.formatMessage({ id: "chat.export.section.user" }),
+          sectionSystemInput: intl.formatMessage({ id: "chat.export.section.systemInput" }),
+          sectionReasoning: intl.formatMessage({ id: "chat.export.section.reasoning" }),
+          sectionAssistant: intl.formatMessage({ id: "chat.export.section.assistant" }),
+          sectionToolCall: (name) =>
+            intl.formatMessage({ id: "chat.export.section.toolCall" }, { name }),
+          workedFor: (duration) =>
+            intl.formatMessage({ id: "chat.export.workedFor" }, { duration }),
+          durationMinutesSeconds: (minutes, seconds) =>
+            intl.formatMessage({ id: "chat.export.duration.minutesSeconds" }, { minutes, seconds }),
+          durationSeconds: (seconds) =>
+            intl.formatMessage({ id: "chat.export.duration.seconds" }, { seconds }),
+          attachment: (name, mime, sizeLabel) =>
+            intl.formatMessage({ id: "chat.export.attachment" }, { name, mime, sizeLabel }),
+          screenshot: (index) => intl.formatMessage({ id: "chat.export.screenshot" }, { index }),
+          imageUnavailable: intl.formatMessage({ id: "chat.export.imageUnavailable" }),
+          inputTruncated: intl.formatMessage({ id: "chat.export.inputTruncated" }),
+          toolFailedShort: (message) =>
+            intl.formatMessage({ id: "chat.export.toolFailedShort" }, { message }),
+        };
+        const dateFormatter = new Intl.DateTimeFormat(locale, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        });
+        const result = await buildConversationMarkdownExport(rows, {
+          sessionId,
+          sessionTitle: snapshot?.meta.title?.trim() ?? "",
+          labels,
+          formatDateTime: (timestamp) => dateFormatter.format(new Date(timestamp)),
+          readAttachment: attachmentRead,
+          detailLevel,
+        });
+        const data = new TextEncoder().encode(result.markdown);
+        if (data.byteLength > MAX_CONVERSATION_EXPORT_BYTES) {
+          toast(intl.formatMessage({ id: "chat.export.toast.tooLarge" }), { variant: "warning" });
+          return;
+        }
+        const lastDirectory = loadConversationExportLastDirectory();
+        const saveResult = await platform.saveFile({
+          data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+          suggestedName: result.suggestedName,
+          ...(lastDirectory ? { defaultDirectory: lastDirectory } : {}),
+        });
+        if (saveResult.canceled) return;
+        if (!saveResult.success || !saveResult.path) {
+          logger.warn("[conversation-export] 保存失败", { error: saveResult.error });
+          toast(intl.formatMessage({ id: "chat.export.toast.failed" }), { variant: "warning" });
+          return;
+        }
+        saveConversationExportLastDirectory(saveResult.path);
+        logger.info("[conversation-export] 导出完成", {
+          detailLevel,
+          turns: result.turnCount,
+          skippedImages: result.skippedImageCount,
+        });
+        toast(intl.formatMessage({ id: "chat.export.toast.success" }, { path: saveResult.path }));
+      } catch (error) {
+        logger.warn("[conversation-export] 导出异常", { error });
+        toast(intl.formatMessage({ id: "chat.export.toast.failed" }), { variant: "warning" });
+      } finally {
+        setConversationExportBusy(false);
+      }
+    },
+    [attachmentRead, intl, lease, locale, platform, sessionId, snapshot?.meta.title],
+  );
+
   useEffect(() => {
     if (!shareActive || !sessionId || !hasOlderRows(snapshot)) return;
     const key = `${sessionId}:${snapshot?.logEpoch ?? "unknown"}`;
@@ -4743,6 +4893,7 @@ export function SessionPane({
               sessionKey={sessionId ?? "draft"}
               scrollMemoryKey={timelineScrollMemoryKey}
               rowContext={rowContext}
+              onRootContextMenu={handleTimelineContextMenu}
               onFork={forkActionsEnabled ? handleFork : undefined}
               onRetry={retryActionsEnabled ? handleRetry : undefined}
               onFeedbackChange={
@@ -4828,6 +4979,22 @@ export function SessionPane({
             />
           </SessionPluginReferenceIconBoundary>
         )}
+
+        {timelineContextMenuAnchor ? (
+          <ConversationTimelineContextMenu
+            anchor={timelineContextMenuAnchor}
+            zoomPercent={Math.round(conversationZoomScale * 100)}
+            canZoomIn={conversationZoomScale < MAX_CONVERSATION_ZOOM_SCALE - 1e-9}
+            canZoomOut={conversationZoomScale > MIN_CONVERSATION_ZOOM_SCALE + 1e-9}
+            exportEnabled={conversationExportEnabled}
+            exportBusy={conversationExportBusy}
+            onClose={() => setTimelineContextMenuAnchor(null)}
+            onExportMarkdown={(detailLevel) => void handleExportConversationMarkdown(detailLevel)}
+            onZoomIn={handleConversationZoomIn}
+            onZoomOut={handleConversationZoomOut}
+            onZoomReset={handleConversationZoomReset}
+          />
+        ) : null}
       </div>
     </div>
   );

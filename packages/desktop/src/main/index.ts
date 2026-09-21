@@ -1942,8 +1942,12 @@ app.whenReady().then(async () => {
   // 启动自动更新检查（后台执行，不阻塞主界面）
   // Preview 身份无论连接哪个后端都不自动更新：stable feed 上只分发正式 ZCode 安装包，
   // 不向 Preview 渠道提供更新。
+  // fork 定制：自编译版本一律关闭自动升级——升级 feed 只分发官方安装包，一旦触发
+  // 下载安装会把官方二进制覆盖到自编译副本上，导出/缩放等定制功能全部丢失；
+  // 左上角升级入口与菜单「检查更新」随之不再出现。
+  const SELF_BUILD_DISABLE_UPDATE_CHANNELS = true;
   void initAutoUpdater({
-    enabled: ZCODE_PRODUCT_FLAVOR === "production",
+    enabled: ZCODE_PRODUCT_FLAVOR === "production" && !SELF_BUILD_DISABLE_UPDATE_CHANNELS,
     onBeforeQuitAndInstall: async () => {
       notifyStabilityLifecycle("update_install");
       await prepareAppQuit("auto-update quitAndInstall", "update-install");
@@ -2185,8 +2189,12 @@ app.whenReady().then(async () => {
   // 是面向打包发布客户端的安全门，对未打包 dev 运行时无意义。打包版 app.isPackaged === true，
   // gate 照常生效，对真实用户零影响。
   const skipForceUpdateForLocalDevRuntime = !app.isPackaged;
+  // fork 定制：自编译版本同样跳过远端强制升级门——官方 minimalVersion 推进后会把
+  // 版本号滞后的自编译副本误判为「需强制升级」并拦截启动，而它并没有可升级的官方渠道。
   const forceUpdateGuardResult =
-    ZCODE_PRODUCT_FLAVOR === "production" && !skipForceUpdateForLocalDevRuntime
+    ZCODE_PRODUCT_FLAVOR === "production" &&
+    !skipForceUpdateForLocalDevRuntime &&
+    !SELF_BUILD_DISABLE_UPDATE_CHANNELS
       ? await maybeBlockStartupForForceUpdate({
           locale: currentApplicationLocale,
           logger,
@@ -2196,7 +2204,9 @@ app.whenReady().then(async () => {
           },
         })
       : { blocked: false };
-  if (ZCODE_PRODUCT_FLAVOR !== "production") {
+  if (SELF_BUILD_DISABLE_UPDATE_CHANNELS) {
+    logger.info("[force-update] 自编译版本跳过远端强制升级检查");
+  } else if (ZCODE_PRODUCT_FLAVOR !== "production") {
     logger.info("[force-update] Preview 跳过远端强制升级检查");
   } else if (skipForceUpdateForLocalDevRuntime) {
     logger.info("[force-update] 本地 dev 构建（未打包）跳过远端强制升级检查");

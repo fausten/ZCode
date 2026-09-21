@@ -8,7 +8,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type TouchEvent as ReactTouchEvent,
@@ -30,6 +32,7 @@ import { cn } from "@/components/lib/utils.js";
 import { runUserAction } from "@/lib/userActionTelemetry.js";
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { useZCodeStore } from "@/store/StoreProvider.js";
 import { logger } from "@/logger.js";
 import { ConversationTurnGroup } from "@/v4/ConversationTurnGroup.js";
 import { ConversationPendingGuideList } from "@/v4/ConversationPendingGuideList.js";
@@ -310,6 +313,11 @@ interface ConversationTimelineProps {
   centerEmptyStateWithDock?: boolean;
   /** 窄屏/粗指针视口保留紧凑居中布局，不复用桌面草稿安全间距。 */
   compactEmptyStateWithDock?: boolean;
+  /**
+   * 转录区根节点右键菜单入口。宿主在此弹出自绘菜单（另存为 Markdown / 缩放）；
+   * 事件已在根节点 preventDefault，宿主无需重复处理原生菜单。
+   */
+  onRootContextMenu?: (event: ReactMouseEvent<HTMLDivElement>) => void;
   /** 右侧状态面板对消息列的布局模式；auto 由 conversation container query 裁决。 */
   summaryPanelLayout?: "none" | "auto" | "inline";
   conversationFindQuery?: string;
@@ -373,6 +381,7 @@ function ConversationTimelineImpl({
   headerSlot,
   centerEmptyStateWithDock = false,
   compactEmptyStateWithDock = false,
+  onRootContextMenu,
   summaryPanelLayout = "none",
   conversationFindQuery = "",
   conversationFindActiveIndex = -1,
@@ -389,6 +398,11 @@ function ConversationTimelineImpl({
 }: ConversationTimelineProps) {
   const { intl } = useZCodeIntl();
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 任务内容区字号缩放：乘在全局 UI 字号上；--text-ui-* 梯子由 conversation-zoom-scope
+  // 在滚动容器上重声明（styles.css），文本刻度变化经正常布局参与虚拟化测高。
+  const uiFontSizePx = useZCodeStore((state) => state.uiFontSizePx);
+  const conversationZoomScale = useZCodeStore((state) => state.conversationZoomScale);
+  const zoomedUiFontSizePx = Math.round(uiFontSizePx * conversationZoomScale * 10) / 10;
   const headerSlotRef = useRef<HTMLDivElement>(null);
   // headerSlot 高度参与虚拟窗口换算（scrollMargin），必须随内容与宽度变化实时跟进，
   // 否则只读块加载完成或窗口变宽换行后，虚拟行会整体错位。
@@ -1686,8 +1700,21 @@ function ConversationTimelineImpl({
 
   // raw projection row 与按 turn 合并后的 render unit 不是同一计量单位；
   // 分开暴露才能让恢复/分页验证不再把可见 unit 误当成持久 row。
+  const handleRootContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (!onRootContextMenu) return;
+      event.preventDefault();
+      onRootContextMenu(event);
+    },
+    [onRootContextMenu],
+  );
+
   return (
-    <div ref={timelineRootRef} className="relative flex min-h-0 flex-1 flex-col">
+    <div
+      ref={timelineRootRef}
+      className="relative flex min-h-0 flex-1 flex-col"
+      onContextMenu={onRootContextMenu ? handleRootContextMenu : undefined}
+    >
       {selectionActions ? (
         <ConversationSelectionTooltip
           rootRef={scrollRef}
@@ -1747,6 +1774,8 @@ function ConversationTimelineImpl({
           // 只声明 overflow-y-auto 会让浏览器把横轴计算为 auto，宽内容会把
           // 整条 Conversation 撑出横向滚动；表格和代码块应由各自内部容器滚动。
           "min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [--markdown-table-layout-left-inset:16px] [--markdown-table-layout-right-inset:16px] max-md:[--markdown-table-layout-left-inset:8px] max-md:[--markdown-table-layout-right-inset:8px]",
+          // 任务内容缩放作用域：梯子重声明 + 行内覆写 --ui-font-size（见 styles.css）。
+          "conversation-zoom-scope",
           // 分享选择面板展开时改为 overflow-hidden：scrollTop 与 scrollbar-gutter 都保持不变，
           // 但原生滚动条、滚轮和键盘翻页都不再能移动背景，勾选目标不会漂走。
           backgroundScrollLocked && "!overflow-y-hidden",
@@ -1755,6 +1784,7 @@ function ConversationTimelineImpl({
           turnNavigatorQueryRowIds.size >= 2 &&
             "@min-[864px]/conversation:[--markdown-table-layout-left-inset:48px]",
         )}
+        style={{ "--ui-font-size": `${zoomedUiFontSizePx}px` } as CSSProperties}
       >
         <div
           className={cn(

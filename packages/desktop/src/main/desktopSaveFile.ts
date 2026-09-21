@@ -3,7 +3,7 @@ import { lookup } from "node:dns/promises";
 import { BlockList } from "node:net";
 import type { LookupFunction } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import type { SaveFileRequest, SaveFileResult } from "@zcode/shared";
 import { PlatformChannels } from "@zcode/shared";
 import { BrowserWindow, dialog, ipcMain } from "electron";
@@ -201,7 +201,15 @@ export function registerDesktopSaveFileIpcHandler(logger: { warn: (...args: unkn
       }
 
       const senderWindow = BrowserWindow.fromWebContents(event.sender);
-      const dialogOptions = { defaultPath: suggestedName };
+      // defaultDirectory 只影响对话框初始位置；非绝对路径一律忽略，
+      // 避免相对路径把对话框锚到 main 进程 cwd。
+      const defaultDirectory =
+        typeof payload.defaultDirectory === "string" && isAbsolute(payload.defaultDirectory)
+          ? payload.defaultDirectory
+          : null;
+      const dialogOptions = {
+        defaultPath: defaultDirectory ? join(defaultDirectory, suggestedName) : suggestedName,
+      };
       const result = senderWindow
         ? await dialog.showSaveDialog(senderWindow, dialogOptions)
         : await dialog.showSaveDialog(dialogOptions);

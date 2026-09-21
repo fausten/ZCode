@@ -253,6 +253,8 @@ export type SaveFileRequest =
       data: ArrayBuffer;
       sourceUrl?: never;
       suggestedName: string;
+      /** 另存为对话框的缺省目录（绝对路径）；非法或相对路径时忽略，回退纯文件名行为。 */
+      defaultDirectory?: string;
     }
   | {
       data?: never;

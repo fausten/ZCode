@@ -31,6 +31,11 @@ import {
   UI_FONT_SIZE_STORAGE_KEY,
 } from "@/lib/uiFontSize.js";
 import {
+  loadConversationZoomScale,
+  normalizeConversationZoomScale,
+  persistConversationZoomScale,
+} from "@/lib/conversationZoomScale.js";
+import {
   isTaskNotificationEnabled,
   isTaskNotificationSoundPreferenceEnabled,
   persistTaskNotificationEnabled,
@@ -119,6 +124,10 @@ export interface ZCodeState {
   /** UI 根 rem 字号（px） */
   uiFontSizePx: number;
   setUiFontSizePx: (fontSizePx: number) => void;
+
+  /** 任务内容区字号缩放系数（乘在 uiFontSizePx 上；窗口局部偏好，不跨窗口广播） */
+  conversationZoomScale: number;
+  setConversationZoomScale: (scale: number) => void;
 
   /** 是否启用性能模式 */
   performanceMode: boolean;
@@ -291,6 +300,13 @@ export function createZCodeStore(
       writeSafeLocalStorage(UI_FONT_SIZE_STORAGE_KEY, String(normalizedFontSizePx));
       applyUiFontSizePx(normalizedFontSizePx);
       set({ uiFontSizePx: normalizedFontSizePx });
+    },
+
+    conversationZoomScale: loadConversationZoomScale(),
+    setConversationZoomScale: (scale: number) => {
+      const normalizedScale = normalizeConversationZoomScale(scale);
+      persistConversationZoomScale(normalizedScale);
+      set({ conversationZoomScale: normalizedScale });
     },
 
     performanceMode: loadPerformanceMode(),

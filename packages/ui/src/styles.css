@@ -58,6 +58,20 @@ body,
   --ui-font-size: 14px;
 }
 
+/* 会话转录区局部字号缩放：--ui-font-size 由 JS 在滚动容器上按「全局字号 × 缩放系数」
+ * 覆写；--text-ui-* 梯子必须在此重声明——custom property 在声明元素处完成代入，
+ * :root 上已代入旧值的梯子不会随继承更新。只缩放文本刻度，不用 CSS zoom/transform，
+ * 避免破坏自研虚拟化的 scrollTop/offset 换算。 */
+.conversation-zoom-scope {
+  --text-ui-xl: calc(var(--ui-font-size) + 4px);
+  --text-ui-lg: calc(var(--ui-font-size) + 2px);
+  --text-ui-base: var(--ui-font-size);
+  --text-ui-caption: calc(var(--ui-font-size) - 1px);
+  --text-ui-sm: calc(var(--ui-font-size) - 2px);
+  --text-ui-xs: calc(var(--ui-font-size) - 4px);
+  --text-ui-2xs: calc(var(--ui-font-size) - 5px);
+}
+
 body {
   margin: 0;
   overflow: hidden;
