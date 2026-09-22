@@ -7,6 +7,7 @@ import type {
   ProviderFamilyConnectionSelectionSettings,
 } from "@zcode/shared";
 import {
+  appSettingsObjectSchema,
   appSettingsPatchSchema,
   appSettingsSchema,
   formatLogPrefix,
@@ -187,6 +188,21 @@ async function readSettings(): Promise<AppSettings> {
   return (await readSettingsWithMeta()).settings;
 }
 
+const knownSettingTopLevelKeys = new Set(Object.keys(appSettingsObjectSchema.shape));
+
+/**
+ * fork 兼容修复：官方新版（如 3.14.1 的 webRemoteControl 配对状态
+ * `webRemoteControlExternalRelayDevice`）会把本 schema 不认识的顶层键写进同一份
+ * setting.json。旧版本按 schema 过滤后重写会把这些键静默丢掉，官方版重启时检测到
+ * 「有 pass_hash 无 deviceSid」的部分状态会安全重置配对，手机连接链接随之失效。
+ * 写入时保留未知键；已知键仍以本版本校验后的值为准（展开顺序保证后者覆盖前者）。
+ */
+function retainUnknownSettingFields(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => !knownSettingTopLevelKeys.has(key)),
+  );
+}
+
 async function writeSettings(
   settings: AppSettings,
   shouldCommit: () => boolean = () => true,
@@ -205,7 +221,8 @@ async function writeSettings(
   maybeThrowInjectedFsFault({ operation: "writeFile", path: settingsFile });
   const raw = await readLegacyAccountConnectionSettingsFile(settingsFile);
   const rollbackFields = retainLegacyAccountConnectionFields(raw);
-  const persisted = { ...rollbackFields, ...settings };
+  // 见 retainUnknownSettingFields：未知顶层键原样透传，避免抹掉更新版本的本地状态。
+  const persisted = { ...retainUnknownSettingFields(raw), ...rollbackFields, ...settings };
   // 旧 Team 尚待 OAuth 补组织时，schema 的默认 {} 不是用户的新选择。
   // 普通偏好保存必须保留新字段缺席；只有迁移提交或用户显式选连接才结束旧导入。
   if (!commitAccountSelection && readIncompleteLegacyTeamConnections(raw).length > 0) {

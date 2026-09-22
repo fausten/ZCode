@@ -417,7 +417,9 @@ function migrateLegacyWorkspaceSession(value: unknown): unknown {
   return migrated;
 }
 
-const appSettingsObjectSchema = z.object({
+// 导出 object 形态供 settings 写入端推导「已知键集合」：写入时据此保留更新的
+// 上游版本写入、但当前 schema 尚不认识的顶层键（见 settingService.writeSettings）。
+export const appSettingsObjectSchema = z.object({
   recentProjects: z.array(z.string()).default([]),
   locale: localeSchema.default("zh-CN"),
   // 快捷键用户覆盖（语义校验在 ui/src/shortcuts 生效表阶段容错，schema 只管形状）
