@@ -27,12 +27,22 @@
     error 态附错误首行（≤60 字符）。不导出输出正文，不内嵌截图。
   - **不导出思考过程**（reasoning 行全部跳过；用户确认的精简边界）。
   - 用户提问、回复正文、图片附件、citation 与 artifact 图片处理与 full 档相同。
+- **另存为 Markdown…（最少，minimal）**：**纯对话**——只导出用户提问与回复正文；
+  全部工具调用（Agent/Skill/Read/Write/Bash/WebSearch/TodoWrite/node-repl 等）
+  与思考过程整类省略（用户逐类点名后收敛）；提问附件与回复内嵌图片保留，
+  缺省文件名加 `-minimal` 后缀。
 
 两档共用范围与数据来源：当前 session 的**全部轮次**，按 rowId 线性排列、按
 turnId 分组。edit/retry 产生的旧轮照常导出（所见即所得，不做去重）。数据来自
 renderer 侧 `ConversationProjectionStore`：导出前调用既有 `loadAllOlder()` 补齐
 全量行（与分享选择流程同一先例），完成后从 `store.getState().snapshot.rows.window`
 读取。**不新增协议命令，不改 CLI。** concise 档缺省文件名加 `-summary` 后缀。
+
+**快捷键**：concise 档注册为全局可配置命令 `exportTaskMarkdown`（默认
+`CmdOrCtrl+S`，channel=window），由聚焦 pane 且导出可用（有 session、有 store、
+平台支持 saveFile）时注册 handler，其余情况放行浏览器默认行为；键位可在设置页
+改绑，右键菜单精简项右侧显示当前生效键位；导出在途时 ref 护栏防连按重复弹
+保存对话框。
 
 - 每轮结构（标题层级：轮 = `##`，行 = `###`）：
   - 轮头：序号、origin 标签（用户/目标延续/后台结果/编辑重跑/工作流启动）、

@@ -56,10 +56,13 @@ export interface ConversationExportLabels {
 /**
  * 导出明细档位：
  * - full「另存所有为」：全部 reasoning 行、工具完整输出与截图——当前任务的全部信息。
- * - concise「另存为」：工具调用只导出单行摘要，**不导出思考过程**（空文本
+ * - concise「另存为（精简）」：工具调用只导出单行摘要，**不导出思考过程**（空文本
  *   reasoning 行两种档位都跳过，对齐 render unit 的空行过滤）。
+ * - minimal「另存为（最少）」：**纯对话**——只导出用户提问与回复正文，全部工具调用
+ *   与思考过程都省略（用户逐类点名 Agent/Skill/Read/Write/Bash/WebSearch/TodoWrite
+ *   后收敛为整类省略）；提问附件与回复内嵌图片仍保留。
  */
-export type ConversationExportDetailLevel = "full" | "concise";
+export type ConversationExportDetailLevel = "full" | "concise" | "minimal";
 
 export interface ConversationMarkdownExportOptions {
   sessionId: string;
@@ -306,8 +309,8 @@ export async function buildConversationMarkdownExport(
   };
 
   const appendReasoningRow = (row: ReasoningRow): void => {
-    // concise 档不导出思考过程（用户确认的精简边界）。
-    if (detailLevel === "concise") return;
+    // 精简/最少档都不导出思考过程（用户确认的精简边界）。
+    if (detailLevel === "concise" || detailLevel === "minimal") return;
     // 空文本行 full 档也跳过：与 render unit 的空 reasoning 过滤一致，零信息小节没有意义。
     if (row.text.trim().length === 0) return;
     const durationSuffix =
@@ -336,7 +339,11 @@ export async function buildConversationMarkdownExport(
   };
 
   const appendToolCallRow = async (row: ToolCallRow): Promise<void> => {
-    if (detailLevel === "concise") {
+    if (detailLevel === "concise" || detailLevel === "minimal") {
+      // minimal 档纯对话：所有工具调用整条省略；concise 档保留单行摘要。
+      if (detailLevel === "minimal") {
+        return;
+      }
       appendToolSummaryRow(row);
       return;
     }
@@ -420,10 +427,9 @@ export async function buildConversationMarkdownExport(
   const markdown = [...header, ...body].join("\n");
 
   const fileTitle = sanitizeExportFileTitle(options.sessionTitle);
-  const suggestedName =
-    detailLevel === "concise"
-      ? `${fileTitle}-${formatFileStamp(now())}-summary.md`
-      : `${fileTitle}-${formatFileStamp(now())}.md`;
+  const detailSuffix =
+    detailLevel === "concise" ? "-summary" : detailLevel === "minimal" ? "-minimal" : "";
+  const suggestedName = `${fileTitle}-${formatFileStamp(now())}${detailSuffix}.md`;
 
   return {
     markdown,

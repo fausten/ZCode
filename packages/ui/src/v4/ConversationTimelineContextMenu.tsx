@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { cn } from "@/components/lib/utils.js";
+import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
 import type { ConversationExportDetailLevel } from "@/v4/conversationMarkdownExport.js";
 
 export interface ConversationTimelineContextMenuAnchor {
@@ -76,6 +77,8 @@ export function ConversationTimelineContextMenu({
 }: ConversationTimelineContextMenuProps) {
   const { intl } = useZCodeIntl();
   const menuRef = useRef<HTMLDivElement>(null);
+  // 跟随生效键位（用户可在设置页改绑）；显式清除绑定时为空串，不显示提示。
+  const exportShortcutLabel = useShortcutCommandLabel("exportTaskMarkdown");
 
   // 点击外部 / Escape / 滚动 / 窗口失焦关闭；pointerdown 用捕获阶段，
   // 菜单自身按钮的 click 属于后续事件，不会被这里抢先关掉。
@@ -130,9 +133,21 @@ export function ConversationTimelineContextMenu({
         onClick={() => onExportMarkdown("concise")}
         onClose={onClose}
       >
-        {exportBusy
-          ? intl.formatMessage({ id: "chat.contextMenu.exportBusy" })
-          : intl.formatMessage({ id: "chat.contextMenu.exportMarkdown" })}
+        <span className="flex-1">
+          {exportBusy
+            ? intl.formatMessage({ id: "chat.contextMenu.exportBusy" })
+            : intl.formatMessage({ id: "chat.contextMenu.exportMarkdown" })}
+        </span>
+        {exportShortcutLabel ? (
+          <span className="text-ui-caption text-foreground-subtle">{exportShortcutLabel}</span>
+        ) : null}
+      </MenuButton>
+      <MenuButton
+        disabled={!exportEnabled || exportBusy}
+        onClick={() => onExportMarkdown("minimal")}
+        onClose={onClose}
+      >
+        {intl.formatMessage({ id: "chat.contextMenu.exportMarkdownMinimal" })}
       </MenuButton>
       <div className="-mx-1 my-1 h-px bg-border" />
       <MenuButton disabled={!canZoomIn} onClick={onZoomIn} onClose={onClose}>

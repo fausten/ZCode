@@ -28,6 +28,7 @@ export type ShortcutCommandId =
   | "openModelMenu"
   | "cycleSessionMode"
   | "cycleThoughtLevel"
+  | "exportTaskMarkdown"
   | "newTask"
   | "openWorkspace"
   | "closeActiveContext"
@@ -80,6 +81,9 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommandEntry[] = [
   { id: "openModelMenu", channel: "window", defaultBindings: ["Ctrl+m"] },
   { id: "cycleSessionMode", channel: "window", defaultBindings: ["Ctrl+Shift+m"] },
   { id: "cycleThoughtLevel", channel: "window", defaultBindings: ["Ctrl+t"] },
+  // 任务内容导出精简 Markdown（fork 定制）：与右键菜单「另存为 Markdown…（精简）」同入口，
+  // 由聚焦 pane 注册 handler；桌面无菜单项抢绑 CmdOrCtrl+S，renderer 可正常收到。
+  { id: "exportTaskMarkdown", channel: "window", defaultBindings: ["CmdOrCtrl+s"] },
   { id: "newTask", channel: "menu", defaultBindings: ["CmdOrCtrl+n"] },
   { id: "openWorkspace", channel: "menu", defaultBindings: ["CmdOrCtrl+o"] },
   { id: "closeActiveContext", channel: "menu", defaultBindings: ["CmdOrCtrl+w"] },

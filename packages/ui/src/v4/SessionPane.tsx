@@ -102,6 +102,7 @@ import { projectSessionConfigToTaskConfigOptions } from "@/v4/composer/sessionCo
 import { useDraftRuntimeRebuildGate } from "@/v4/composer/useDraftRuntimeRebuildGate.js";
 import { useDraftModelReadinessGate } from "@/v4/composer/useDraftModelReadinessGate.js";
 import { useSettings } from "@/hooks/useSettingService.js";
+import { useAppKeyboard } from "@/hooks/useAppKeyboard.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import {
@@ -3676,6 +3677,9 @@ export function SessionPane({
     y: number;
   } | null>(null);
   const [conversationExportBusy, setConversationExportBusy] = useState(false);
+  // ⌘S 连按护栏：handler 闭包不依赖 busy state，用 ref 拦截在途导出，
+  // 避免连按触发两个原生保存对话框排队。
+  const conversationExportInFlightRef = useRef(false);
 
   const handleTimelineContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     setTimelineContextMenuAnchor({ x: event.clientX, y: event.clientY });
@@ -3699,6 +3703,8 @@ export function SessionPane({
     async (detailLevel: ConversationExportDetailLevel) => {
       const store = lease?.store;
       if (!sessionId || !store || !platform?.saveFile) return;
+      if (conversationExportInFlightRef.current) return;
+      conversationExportInFlightRef.current = true;
       setConversationExportBusy(true);
       try {
         // 复用分享选择流程的全量补齐通道；loadAllOlder 自身单飞防重入。
@@ -3779,11 +3785,22 @@ export function SessionPane({
         logger.warn("[conversation-export] 导出异常", { error });
         toast(intl.formatMessage({ id: "chat.export.toast.failed" }), { variant: "warning" });
       } finally {
+        conversationExportInFlightRef.current = false;
         setConversationExportBusy(false);
       }
     },
     [attachmentRead, intl, lease, locale, platform, sessionId, snapshot?.meta.title],
   );
+
+  // ⌘S / Ctrl+S → 另存为 Markdown（精简）：命令注册见 shortcutCommands.exportTaskMarkdown。
+  // 只有聚焦 pane 且导出可用时才注册 handler（null = 放行浏览器默认保存行为）；
+  // 导出在途时保持接管吞键，避免半途触发浏览器「保存网页」。
+  useAppKeyboard({
+    exportTaskMarkdown:
+      focused && conversationExportEnabled
+        ? () => void handleExportConversationMarkdown("concise")
+        : null,
+  });
 
   useEffect(() => {
     if (!shareActive || !sessionId || !hasOlderRows(snapshot)) return;

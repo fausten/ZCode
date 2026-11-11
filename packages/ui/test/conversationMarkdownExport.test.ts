@@ -216,6 +216,93 @@ test("精简档：工具仅单行摘要，思考过程完全不导出", async ()
   assert.ok(markdown.includes("![alt](data:image/png;base64,AQID)"));
 });
 
+test("最少档：纯对话——全部工具调用省略，仅提问与回复", async () => {
+  const rows: ConversationRow[] = [
+    ...buildConversationRows().filter((row) => row.kind !== "turnHeader"),
+    {
+      ...baseRowFields,
+      rowId: 9,
+      kind: "toolCall",
+      toolCallId: "call-3",
+      toolName: "Agent",
+      status: "success",
+      inputText: '{"description":"探索围棋部落比赛管理现状","prompt":"搜索广度：very thorough…"}',
+    },
+    {
+      ...baseRowFields,
+      rowId: 10,
+      kind: "toolCall",
+      toolCallId: "call-4",
+      toolName: "Skill",
+      status: "success",
+      inputText: '{"skill":"browser-use:control-browser"}',
+    },
+    {
+      ...baseRowFields,
+      rowId: 11,
+      kind: "toolCall",
+      toolCallId: "call-5",
+      toolName: "Read",
+      status: "success",
+      inputText:
+        '{"file_path":"/Users/fausten/.zcode/cli/memories/projects/wqbbapp-2000c3fa251487…"}',
+    },
+    {
+      ...baseRowFields,
+      rowId: 12,
+      kind: "toolCall",
+      toolCallId: "call-6",
+      toolName: "TodoWrite",
+      status: "success",
+      inputText: '{"todos":[{"content":"调研云比赛网参赛端流程","status":"completed"}]}',
+    },
+    {
+      ...baseRowFields,
+      rowId: 13,
+      kind: "toolCall",
+      toolCallId: "call-7",
+      toolName: "WebSearch",
+      status: "error",
+      error: { code: "cancelled", message: "WebSearch was cancelled" },
+      inputText: '{"query":"云比赛网 机构 赛事管理"}',
+    },
+  ];
+  // 把 turnHeader 放回队首，保持行序。
+  rows.unshift({
+    ...baseRowFields,
+    rowId: 1,
+    kind: "turnHeader",
+    origin: "userInput",
+    state: "completedSuccess",
+    startedAt: 1_700_000_000_000,
+    activeMs: 133_000,
+  });
+
+  const result = await buildConversationMarkdownExport(rows, {
+    sessionId: "session-1",
+    sessionTitle: "围棋部落调研",
+    labels: buildLabels(),
+    formatDateTime: (timestamp) => `T${timestamp}`,
+    readAttachment: fakeReadAttachment,
+    detailLevel: "minimal",
+  });
+
+  const markdown = result.markdown;
+  assert.match(result.suggestedName, /-minimal\.md$/u);
+
+  // 全部工具调用整条缺席（含此前逐类点名的 Agent/Skill/node-repl/Read/Write/Bash/
+  // WebSearch/TodoWrite）。
+  assert.ok(!markdown.includes("- **"));
+  assert.ok(!markdown.includes("very thorough"));
+  assert.ok(!markdown.includes("云比赛网"));
+
+  // 提问与回复保留；思考过程与工具输出不导出。
+  assert.ok(markdown.includes("帮我看看这个报错"));
+  assert.ok(markdown.includes("`index.ts`"));
+  assert.ok(markdown.includes("![alt](data:image/png;base64,AQID)"));
+  assert.equal((markdown.match(/### Reasoning/gu) ?? []).length, 0);
+});
+
 test("文件名清洗：控制字符与保留名", () => {
   assert.equal(sanitizeExportFileTitle('a/b\\c:d*e?f"g<h>i|j'), "a_b_c_d_e_f_g_h_i_j");
   assert.equal(sanitizeExportFileTitle("   "), "conversation");
